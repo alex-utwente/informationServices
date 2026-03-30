@@ -64,8 +64,6 @@ for record in root.xpath("//srw:record", namespaces=ns):
 
     full_law_text = "\n\n".join(all_articles)
 
-    print(full_law_text)
-
     data = {
         "title": title,
         "creator": creator,
