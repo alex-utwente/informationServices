@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from openai import OpenAI
 import json
+import re
 import subprocess
 import sys
 from typing import Any
@@ -42,8 +43,102 @@ class LawSourceRequest(BaseModel):
     text: str | None = None
     raw_data: Any | None = None
 
+
+class LawExplanation(BaseModel):
+    title: str
+    overview: str
+    expected_impacts: list[str]
+    key_changes: list[str]
+    trade_offs: list[str]
+    meaning_for_resident: str
+
+
+class ArticleExplanation(BaseModel):
+    plain_answer: str
+    why_this_happens: list[str]
+    benefits: list[str]
+    downsides: list[str]
+    simple_example: str
+
 stored_laws = []
 next_law_id = 1
+
+
+def parse_json_payload(content: str):
+    cleaned = content.strip()
+
+    translation_table = str.maketrans({
+        "\u2018": "'",
+        "\u2019": "'",
+        "\u201c": '"',
+        "\u201d": '"',
+        "\u00a0": " ",
+    })
+    cleaned = cleaned.translate(translation_table)
+    cleaned = cleaned.replace("\r\n", "\n").replace("\r", "\n")
+    cleaned = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", cleaned)
+
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+        cleaned = re.sub(r"\s*```$", "", cleaned)
+
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        match = re.search(r"\{[\s\S]*\}", cleaned)
+        if match:
+            extracted = match.group(0)
+            extracted = extracted.translate(translation_table)
+            extracted = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", extracted)
+            return json.loads(extracted)
+        raise
+
+
+def validate_explanation_payload(payload: Any, req_type: str):
+    if req_type == "law":
+        return LawExplanation.model_validate(payload).model_dump()
+    return ArticleExplanation.model_validate(payload).model_dump()
+
+
+def repair_explanation_response(content: str, req_type: str):
+    if req_type == "law":
+        schema = """{
+  "title": "string",
+  "overview": "string",
+  "expected_impacts": ["string", "string"],
+  "key_changes": ["string", "string"],
+  "trade_offs": ["string", "string"],
+  "meaning_for_resident": "string"
+}"""
+    else:
+        schema = """{
+  "plain_answer": "string",
+  "why_this_happens": ["string", "string"],
+  "benefits": ["string", "string"],
+  "downsides": ["string", "string"],
+  "simple_example": "string"
+}"""
+
+    repair_prompt = f"""Convert the following model output into strict valid JSON.
+
+Rules:
+- Return only JSON.
+- Use straight double quotes only.
+- Escape any internal quotes inside string values.
+- Do not use markdown fences.
+- Preserve the original meaning.
+- Match this exact schema:
+{schema}
+
+Model output:
+{content}"""
+
+    response = client.chat.completions.create(
+        model="local-model",
+        messages=[{"role": "user", "content": repair_prompt}],
+        temperature=0
+    )
+    return parse_json_payload(response.choices[0].message.content)
 
 @app.post("/laws/process")
 def process_law(req: LawSourceRequest):
@@ -84,7 +179,7 @@ def delete_law(law_id: int):
 def generate_law():
     try:
         result = subprocess.run(
-            [sys.executable, "BesluitenAPI_integration.py"],
+            [sys.executable, "GetLawsApi.py"],
             capture_output=True,
             text=True,
             check=True,
@@ -127,7 +222,9 @@ Provide the explanation in this JSON format:
     "key_changes": ["Change 1", "Change 2"],
     "trade_offs": ["Trade 1", "Trade 2"],
     "meaning_for_resident": "What this means for residents"
-}}"""
+}}
+
+Return only valid JSON. Do not wrap the JSON in markdown fences."""
         else:
             prompt = f"""Explain the following in simple terms:
 
@@ -141,16 +238,24 @@ Provide the explanation in this JSON format:
     "benefits": ["Benefit 1"],
     "downsides": ["Downside 1"],
     "simple_example": "Example scenario"
-}}"""
+}}
+
+Return only valid JSON. Do not wrap the JSON in markdown fences."""
         
         response = client.chat.completions.create(
             model="local-model",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.7
+            temperature=0
         )
-        
-        import json
-        return json.loads(response.choices[0].message.content)
+
+        raw_content = response.choices[0].message.content
+
+        try:
+            payload = parse_json_payload(raw_content)
+        except Exception:
+            payload = repair_explanation_response(raw_content, req.type)
+
+        return validate_explanation_payload(payload, req.type)
     except Exception as e:
         return {"error": str(e)}
 

@@ -1,5 +1,16 @@
 import { useEffect, useState } from "react";
 
+const progressKeyframes = `
+  @keyframes progress-slide {
+    0% {
+      transform: translateX(-120%);
+    }
+    100% {
+      transform: translateX(280%);
+    }
+  }
+`;
+
 const items = [
   {
     id: 1,
@@ -101,31 +112,15 @@ const items = [
 ];
 
 const ITEMS_PER_PAGE = 10;
-const SAMPLE_LAW_API_RESPONSE = {
-  title: "Generated law from interface integration",
-  creator: "BesluitenAPI integration",
-  url: "https://example.com/generated-law",
-  text: "Generated payload from the interface integration.",
-  raw_data: {
-    summary: "This raw payload is now generated directly inside the React interface.",
-    sections: [
-      {
-        heading: "Article 1",
-        body: "Replace this object with the real API response you want to fetch in the frontend."
-      },
-      {
-        heading: "Article 2",
-        body: "The Generate button now posts this payload directly to the backend laws endpoint."
-      }
-    ]
-  }
-};
-
 function App() {
   const [activeSection, setActiveSection] = useState("laws");
   const [laws, setLaws] = useState([]);
   const [explanations, setExplanations] = useState({});
+  const [expandedExplanations, setExpandedExplanations] = useState({});
+  const [explanationLanguage, setExplanationLanguage] = useState("en");
   const [loadingExplainId, setLoadingExplainId] = useState(null);
+  const [explainStartedAt, setExplainStartedAt] = useState(null);
+  const [progressElapsedMs, setProgressElapsedMs] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [isGenerating, setIsGenerating] = useState(false);
   const [deletingLawId, setDeletingLawId] = useState(null);
@@ -143,6 +138,9 @@ function App() {
     return law.text || "";
   };
 
+  const getExplanationKey = (itemId, language = explanationLanguage) =>
+    `${itemId}:${language}`;
+
   const loadLaws = async () => {
     try {
       const res = await fetch("http://localhost:8000/laws");
@@ -156,6 +154,24 @@ function App() {
   useEffect(() => {
     loadLaws();
   }, []);
+
+  useEffect(() => {
+    if (!loadingExplainId || !explainStartedAt) {
+      setProgressElapsedMs(0);
+      return undefined;
+    }
+
+    const updateElapsed = () => {
+      setProgressElapsedMs(Date.now() - explainStartedAt);
+    };
+
+    updateElapsed();
+    const intervalId = window.setInterval(updateElapsed, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [loadingExplainId, explainStartedAt]);
 
   const filteredItems =
     activeSection === "laws"
@@ -175,19 +191,13 @@ function App() {
     setGenerateMessage("");
 
     try {
-      const apiResponse = SAMPLE_LAW_API_RESPONSE;
-
-      const res = await fetch("http://localhost:8000/laws/process", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(apiResponse)
+      const res = await fetch("http://localhost:8000/generate", {
+        method: "POST"
       });
       const json = await res.json();
 
       setGenerateMessage(
-        json.id ? "Generation completed successfully." : "Generation finished."
+        json.message || "Generation finished."
       );
       await loadLaws();
       setActiveSection("laws");
@@ -213,6 +223,12 @@ function App() {
       setGenerateMessage(json.message || "Law deleted.");
       setExplanations((prev) => {
         const updated = { ...prev };
+        delete updated[getExplanationKey(lawId, "en")];
+        delete updated[getExplanationKey(lawId, "nl")];
+        return updated;
+      });
+      setExpandedExplanations((prev) => {
+        const updated = { ...prev };
         delete updated[lawId];
         return updated;
       });
@@ -236,7 +252,18 @@ function App() {
   };
 
  const handleExplain = async (item) => {
+  const explanationKey = getExplanationKey(item.id);
+
+  if (explanations[explanationKey]) {
+    setExpandedExplanations((prev) => ({
+      ...prev,
+      [item.id]: true
+    }));
+    return;
+  }
+
   setLoadingExplainId(item.id);
+  setExplainStartedAt(Date.now());
 
   try {
     const res = await fetch("http://localhost:8000/explain", {
@@ -248,7 +275,8 @@ function App() {
         type: item.type,
         title: item.title,
         source: item.type === "law" ? item.creator : item.source,
-        content: item.type === "law" ? getLawDisplayContent(item) : item.content
+        content: item.type === "law" ? getLawDisplayContent(item) : item.content,
+        language: explanationLanguage
       })
     });
 
@@ -256,33 +284,33 @@ function App() {
 
     setExplanations((prev) => ({
       ...prev,
-      [item.id]: json
+      [explanationKey]: json
+    }));
+    setExpandedExplanations((prev) => ({
+      ...prev,
+      [item.id]: true
     }));
   } catch (error) {
     console.error("Error fetching explanation:", error);
   } finally {
     setLoadingExplainId(null);
+    setExplainStartedAt(null);
   }
 };
 
+  const formatElapsedTime = (elapsedMs) => {
+    const totalSeconds = Math.floor(elapsedMs / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+
+    return `${minutes}:${String(seconds).padStart(2, "0")}`;
+  };
+
   const handleHideExplanation = (itemId) => {
-    setExplanations((prev) => {
-      const updated = { ...prev };
-      delete updated[itemId];
-      return updated;
-    });
-
-    setQuestionAnswers((prev) => {
-      const updated = { ...prev };
-      delete updated[itemId];
-      return updated;
-    });
-
-    setQuestionInputs((prev) => {
-      const updated = { ...prev };
-      delete updated[itemId];
-      return updated;
-    });
+    setExpandedExplanations((prev) => ({
+      ...prev,
+      [itemId]: false
+    }));
   };
 
   const handleQuestionChange = (itemId, value) => {
@@ -323,6 +351,7 @@ function App() {
 
   return (
     <div style={styles.page}>
+      <style>{progressKeyframes}</style>
       <h1 style={styles.title}>Information Service Tool</h1>
       <p style={styles.subtitle}>
         Read current topics, policies, and local rules, then get simple
@@ -382,6 +411,12 @@ function App() {
         )}
 
         {currentItems.map((item) => (
+          (() => {
+            const explanationKey = getExplanationKey(item.id);
+            const explanation = explanations[explanationKey];
+            const isExplanationExpanded = expandedExplanations[item.id];
+
+            return (
           <div key={item.id} style={styles.card}>
             <div style={styles.tagRow}>
               <span
@@ -431,9 +466,17 @@ function App() {
               </button>
             )}
 
-            {!explanations[item.id] ? (
-              <button style={styles.button} onClick={() => handleExplain(item)}>
-                {loadingExplainId === item.id ? "Loading..." : "Explain"}
+            {!explanation || !isExplanationExpanded ? (
+              <button
+                style={styles.button}
+                onClick={() => handleExplain(item)}
+                disabled={loadingExplainId === item.id}
+              >
+                {loadingExplainId === item.id
+                  ? "Loading..."
+                  : explanation
+                    ? "Show explanation"
+                    : "Explain"}
               </button>
             ) : (
               <>
@@ -445,24 +488,39 @@ function App() {
                 </button>
 
                 <div style={styles.explanationBox}>
-  <h3 style={styles.sectionTitle}>Explanation</h3>
+  <div style={styles.explanationHeader}>
+    <h3 style={styles.sectionTitle}>Explanation</h3>
+    <select
+      value={explanationLanguage}
+      onChange={(e) => setExplanationLanguage(e.target.value)}
+      style={styles.languageSelect}
+    >
+      <option value="en">English</option>
+      <option value="nl">Dutch</option>
+    </select>
+  </div>
 
-  {item.type === "law" ? (
+  {explanation.error ? (
+    <div style={styles.block}>
+      <p style={styles.heading}>Processing Error</p>
+      <p style={styles.contentText}>{explanation.error}</p>
+    </div>
+  ) : item.type === "law" ? (
     <>
       <div style={styles.block}>
         <p style={styles.heading}>Title</p>
-        <p style={styles.contentText}>{explanations[item.id].title}</p>
+        <p style={styles.contentText}>{explanation.title}</p>
       </div>
 
       <div style={styles.block}>
         <p style={styles.heading}>Overview</p>
-        <p style={styles.contentText}>{explanations[item.id].overview}</p>
+        <p style={styles.contentText}>{explanation.overview}</p>
       </div>
 
       <div style={styles.block}>
         <p style={styles.heading}>Expected Impacts</p>
         <ul style={styles.list}>
-          {explanations[item.id].expected_impacts?.map((impact, i) => (
+          {explanation.expected_impacts?.map((impact, i) => (
             <li key={i} style={styles.listItem}>
               {impact}
             </li>
@@ -473,7 +531,7 @@ function App() {
       <div style={styles.block}>
         <p style={styles.heading}>Key Changes</p>
         <ul style={styles.list}>
-          {explanations[item.id].key_changes?.map((change, i) => (
+          {explanation.key_changes?.map((change, i) => (
             <li key={i} style={styles.listItem}>
               {change}
             </li>
@@ -484,7 +542,7 @@ function App() {
       <div style={styles.block}>
         <p style={styles.heading}>Trade-offs</p>
         <ul style={styles.list}>
-          {explanations[item.id].trade_offs?.map((trade, i) => (
+          {explanation.trade_offs?.map((trade, i) => (
             <li key={i} style={styles.listItem}>
               {trade}
             </li>
@@ -495,7 +553,7 @@ function App() {
       <div style={styles.block}>
         <p style={styles.heading}>Meaning for Resident</p>
         <p style={styles.contentText}>
-          {explanations[item.id].meaning_for_resident}
+          {explanation.meaning_for_resident}
         </p>
       </div>
     </>
@@ -504,14 +562,14 @@ function App() {
       <div style={styles.block}>
         <p style={styles.heading}>Plain Answer</p>
         <p style={styles.contentText}>
-          {explanations[item.id].plain_answer}
+          {explanation.plain_answer}
         </p>
       </div>
 
       <div style={styles.block}>
         <p style={styles.heading}>Why this happens</p>
         <ul style={styles.list}>
-          {explanations[item.id].why_this_happens?.map((reason, i) => (
+          {explanation.why_this_happens?.map((reason, i) => (
             <li key={i} style={styles.listItem}>
               {reason}
             </li>
@@ -522,7 +580,7 @@ function App() {
       <div style={styles.block}>
         <p style={styles.heading}>Benefits</p>
         <ul style={styles.list}>
-          {explanations[item.id].benefits?.map((benefit, i) => (
+          {explanation.benefits?.map((benefit, i) => (
             <li key={i} style={styles.listItem}>
               {benefit}
             </li>
@@ -533,7 +591,7 @@ function App() {
       <div style={styles.block}>
         <p style={styles.heading}>Downsides</p>
         <ul style={styles.list}>
-          {explanations[item.id].downsides?.map((downside, i) => (
+          {explanation.downsides?.map((downside, i) => (
             <li key={i} style={styles.listItem}>
               {downside}
             </li>
@@ -544,7 +602,7 @@ function App() {
       <div style={styles.block}>
         <p style={styles.heading}>Simple Example</p>
         <p style={styles.contentText}>
-          {explanations[item.id].simple_example}
+          {explanation.simple_example}
         </p>
       </div>
     </>
@@ -579,7 +637,26 @@ function App() {
 </div>
               </>
             )}
+
+            {loadingExplainId === item.id && (
+              <div style={styles.progressCard}>
+                <p style={styles.progressTitle}>Processing with local LLM</p>
+                <div style={styles.progressTrack}>
+                  <div style={styles.progressBar} />
+                </div>
+                <p style={styles.progressText}>
+                  Elapsed time: {formatElapsedTime(progressElapsedMs)}
+                </p>
+                <p style={styles.progressHint}>
+                  This shows active processing while the model works. The
+                  current local API does not expose a true completion
+                  percentage for prompt processing.
+                </p>
+              </div>
+            )}
           </div>
+            );
+          })()
         ))}
       </div>
 
@@ -769,9 +846,64 @@ const styles = {
     borderRadius: "8px",
     marginTop: "20px"
   },
+  explanationHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: "12px",
+    marginBottom: "12px"
+  },
+  progressCard: {
+    marginTop: "16px",
+    padding: "16px",
+    borderRadius: "8px",
+    backgroundColor: "#eff6ff",
+    border: "1px solid #bfdbfe"
+  },
+  progressTitle: {
+    margin: "0 0 8px",
+    color: "#1d4ed8",
+    fontWeight: "700"
+  },
+  progressTrack: {
+    position: "relative",
+    overflow: "hidden",
+    width: "100%",
+    height: "12px",
+    borderRadius: "999px",
+    backgroundColor: "#dbeafe"
+  },
+  progressBar: {
+    width: "40%",
+    height: "100%",
+    borderRadius: "999px",
+    background: "linear-gradient(90deg, #2563eb 0%, #60a5fa 100%)",
+    animation: "progress-slide 1.5s ease-in-out infinite"
+  },
+  progressText: {
+    margin: "10px 0 0",
+    color: "#1e3a8a",
+    fontSize: "14px"
+  },
+  progressHint: {
+    margin: "6px 0 0",
+    color: "#1e40af",
+    fontSize: "13px",
+    lineHeight: "1.5"
+  },
   sectionTitle: {
     marginTop: 0,
     color: "#111827"
+  },
+  languageSelect: {
+    border: "1px solid #93c5fd",
+    borderRadius: "999px",
+    backgroundColor: "#ffffff",
+    color: "#1e3a8a",
+    padding: "8px 12px",
+    fontSize: "14px",
+    fontWeight: "600",
+    cursor: "pointer"
   },
   text: {
     lineHeight: "1.7",
