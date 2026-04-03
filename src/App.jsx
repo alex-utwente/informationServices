@@ -130,6 +130,10 @@ function App() {
   const [questionAnswers, setQuestionAnswers] = useState({});
   const [loadingAskId, setLoadingAskId] = useState(null);
 
+  const [biasResults, setBiasResults] = useState({});
+  const [evaluatingBiasIds, setEvaluatingBiasIds] = useState({});
+  
+
   const getLawDisplayContent = (law) => {
     if (law.raw_data) {
       return JSON.stringify(law.raw_data, null, 2);
@@ -180,6 +184,7 @@ function App() {
   const totalPages = Math.ceil(filteredItems.length / ITEMS_PER_PAGE);
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
   const currentItems = filteredItems.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  
 
   const handleSectionChange = (section) => {
     setActiveSection(section);
@@ -251,14 +256,58 @@ function App() {
     }
   };
 
- const handleExplain = async (item) => {
+//  const handleExplain = async (item) => {
+//   const explanationKey = getExplanationKey(item.id);
+
+//   if (explanations[explanationKey]) {
+//     setExpandedExplanations((prev) => ({
+//       ...prev,
+//       [item.id]: true
+//     }));
+//     return;
+//   }
+
+//   setLoadingExplainId(item.id);
+//   setExplainStartedAt(Date.now());
+
+//   try {
+//     const res = await fetch("http://localhost:8000/explain", {
+//       method: "POST",
+//       headers: {
+//         "Content-Type": "application/json"
+//       },
+//       body: JSON.stringify({
+//         type: item.type,
+//         title: item.title,
+//         source: item.type === "law" ? item.creator : item.source,
+//         content: item.type === "law" ? getLawDisplayContent(item) : item.content,
+//         language: explanationLanguage
+//       })
+//     });
+
+//     const json = await res.json();
+
+//     setExplanations((prev) => ({
+//       ...prev,
+//       [explanationKey]: json
+//     }));
+//     setExpandedExplanations((prev) => ({
+//       ...prev,
+//       [item.id]: true
+//     }));
+//   } catch (error) {
+//     console.error("Error fetching explanation:", error);
+//   } finally {
+//     setLoadingExplainId(null);
+//     setExplainStartedAt(null);
+//   }
+// };
+
+const handleExplain = async (item) => {
   const explanationKey = getExplanationKey(item.id);
 
   if (explanations[explanationKey]) {
-    setExpandedExplanations((prev) => ({
-      ...prev,
-      [item.id]: true
-    }));
+    setExpandedExplanations((prev) => ({ ...prev, [item.id]: true }));
     return;
   }
 
@@ -266,30 +315,43 @@ function App() {
   setExplainStartedAt(Date.now());
 
   try {
+    const content = item.type === "law" ? getLawDisplayContent(item) : item.content;
+    
     const res = await fetch("http://localhost:8000/explain", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         type: item.type,
         title: item.title,
         source: item.type === "law" ? item.creator : item.source,
-        content: item.type === "law" ? getLawDisplayContent(item) : item.content,
+        content: content,
         language: explanationLanguage
       })
     });
 
     const json = await res.json();
+    setExplanations((prev) => ({ ...prev, [explanationKey]: json }));
+    setExpandedExplanations((prev) => ({ ...prev, [item.id]: true }));
 
-    setExplanations((prev) => ({
-      ...prev,
-      [explanationKey]: json
-    }));
-    setExpandedExplanations((prev) => ({
-      ...prev,
-      [item.id]: true
-    }));
+  
+    setEvaluatingBiasIds((prev) => ({ ...prev, [item.id]: true }));
+    try {
+      const biasRes = await fetch("http://localhost:8000/evaluate-bias", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          input_text: content,
+          target_response: JSON.stringify(json)
+        })
+      });
+      const biasJson = await biasRes.json();
+      setBiasResults((prev) => ({ ...prev, [explanationKey]: biasJson }));
+    } catch (biasError) {
+      console.error("Error fetching bias:", biasError);
+    } finally {
+      setEvaluatingBiasIds((prev) => ({ ...prev, [item.id]: false }));
+    }
+
   } catch (error) {
     console.error("Error fetching explanation:", error);
   } finally {
@@ -415,6 +477,9 @@ function App() {
             const explanationKey = getExplanationKey(item.id);
             const explanation = explanations[explanationKey];
             const isExplanationExpanded = expandedExplanations[item.id];
+
+            const biasResult = biasResults[explanationKey];
+            const isEvaluatingBias = evaluatingBiasIds[item.id];
 
             return (
           <div key={item.id} style={styles.card}>
@@ -607,7 +672,30 @@ function App() {
       </div>
     </>
   )}
-
+  {/* Bias Evaluation Display */}
+<div style={{ ...styles.block, backgroundColor: "#f8fafc", padding: "12px", borderRadius: "8px" }}>
+  <p style={styles.heading}>Bias Evaluation</p>
+  {isEvaluatingBias ? (
+  <p style={{ color: "#64748b", fontSize: "14px", fontStyle: "italic" }}>
+    Evaluating response for bias...
+  </p>
+) : biasResult?.error ? (
+  <p style={{ color: "#b91c1c", fontSize: "14px" }}>
+    Failed to evaluate bias: {biasResult.error}
+  </p>
+) : biasResult ? (
+    <>
+      <div style={{ marginBottom: "8px", fontWeight: "bold", color: biasResult.score > 0.5 ? "#b91c1c" : "#15803d" }}>
+        Score: {biasResult.score} {biasResult.score > 0.5 ? "(Detected Bias)" : "(Unbiased)"}
+      </div>
+      <p style={{ ...styles.contentText, fontSize: "14px" }}>
+        <strong>Reasoning:</strong> {biasResult.reason || "No reasoning provided."}
+      </p>
+    </>
+  ) : (
+    <p style={{ color: "#64748b", fontSize: "14px" }}>Bias not evaluated.</p>
+  )}
+</div>
   <div style={styles.askBox}>
     <p style={styles.heading}>
       Ask anything about this {item.type === "law" ? "law" : "article"}

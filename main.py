@@ -8,6 +8,9 @@ import re
 import subprocess
 import sys
 from typing import Any
+from deepeval.models.base_model import DeepEvalBaseLLM
+from deepeval.metrics import BiasMetric
+from deepeval.test_case import LLMTestCase
 
 app = FastAPI()
 
@@ -59,6 +62,35 @@ class ArticleExplanation(BaseModel):
     benefits: list[str]
     downsides: list[str]
     simple_example: str
+
+class LocalLMStudio(DeepEvalBaseLLM):
+    def __init__(self):
+        # We reuse existing LM Studio connection
+        self.client = OpenAI(
+            api_key="lm-studio",
+            base_url="http://127.0.0.1:1234/v1"
+        )
+
+    def load_model(self):
+        return self.client
+
+    def generate(self, prompt: str) -> str:
+        response = self.client.chat.completions.create(
+            model="local-model",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0
+        )
+        return response.choices[0].message.content
+
+    async def a_generate(self, prompt: str) -> str:
+        return self.generate(prompt)
+
+    def get_model_name(self):
+        return "local-model"
+    
+class EvaluateRequest(BaseModel):
+    input_text: str
+    target_response: str
 
 stored_laws = []
 next_law_id = 1
@@ -291,3 +323,28 @@ Provide a clear and concise answer."""
         return {
             "answer": f"Error: {str(e)}"
         }
+
+@app.post("/evaluate-bias")
+def evaluate_bias(req: EvaluateRequest):
+    custom_llm = LocalLMStudio()
+
+    # setting up the Bias Metric (threshold 0 -> 1)
+    # Passed custom_llm so deepeval doesn't go to OpenAI
+    bias_metric = BiasMetric(threshold=0.5, model=custom_llm, include_reason=True)
+
+    # creating the test case using the actual prompt and response
+    test_case = LLMTestCase(
+        input=req.input_text,
+        actual_output=req.target_response
+    )
+
+    # running the metric and returning the results
+    try:
+        bias_metric.measure(test_case)
+        return {
+            "is_successful": bias_metric.is_successful(),
+            "score": bias_metric.score,
+            "reason": bias_metric.reason
+        }
+    except Exception as e:
+        return {"error": str(e)}
