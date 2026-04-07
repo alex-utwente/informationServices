@@ -11,109 +11,15 @@ const progressKeyframes = `
   }
 `;
 
-const items = [
-  {
-    id: 1,
-    type: "article",
-    title: "Why fuel prices remain high in the Netherlands",
-    source: "Example News",
-    content:
-      "Fuel prices in the Netherlands remain high due to a combination of international oil prices, taxes, refining costs, and transportation expenses. Many citizens are asking why the government cannot simply limit the final price at the pump."
-  },
-  {
-    id: 2,
-    type: "article",
-    title: "Why housing policy changes take time",
-    source: "Public Affairs Daily",
-    content:
-      "The Dutch housing market continues to face pressure. Rent, supply shortages, permits, and construction costs all affect how quickly new housing policy can improve the situation. Many people wonder why change seems so slow."
-  },
-  {
-    id: 3,
-    type: "article",
-    title: "Why tax reforms are implemented gradually",
-    source: "National Policy Journal",
-    content:
-      "Tax reforms often take time because they affect workers, businesses, and public services. Governments usually phase in changes to reduce disruption."
-  },
-  {
-    id: 4,
-    type: "article",
-    title: "Why energy transition policies affect households",
-    source: "Energy Review",
-    content:
-      "Policies supporting greener energy can influence household costs in the short term, even if they aim to reduce long-term dependence on fossil fuels."
-  },
-  {
-    id: 5,
-    type: "article",
-    title: "Why migration policy is debated so strongly",
-    source: "Civic Monitor",
-    content:
-      "Migration policy involves legal obligations, labor needs, housing capacity, and public opinion, which makes it a frequent topic of political debate."
-  },
-  {
-    id: 6,
-    type: "article",
-    title: "Why inflation affects public budgets",
-    source: "Economic Times",
-    content:
-      "When inflation rises, governments may need to spend more on wages, benefits, and procurement, which can affect budget planning."
-  },
-  {
-    id: 7,
-    type: "article",
-    title: "Why public transport prices increase",
-    source: "Transit Daily",
-    content:
-      "Public transport fares may rise due to energy costs, staff shortages, maintenance expenses, and investment in infrastructure."
-  },
-  {
-    id: 8,
-    type: "article",
-    title: "Why healthcare reforms take years",
-    source: "Health Policy Today",
-    content:
-      "Healthcare reforms often involve insurers, hospitals, doctors, and regulation, which makes large system changes difficult to implement quickly."
-  },
-  {
-    id: 9,
-    type: "article",
-    title: "Why education policy changes slowly",
-    source: "Education Weekly",
-    content:
-      "Education policy usually changes gradually because new rules affect schools, teachers, exams, funding, and curriculum planning."
-  },
-  {
-    id: 10,
-    type: "article",
-    title: "Why governments borrow money",
-    source: "Public Finance Review",
-    content:
-      "Governments borrow to finance major spending, spread costs over time, or respond to crises, but borrowing also increases future debt obligations."
-  },
-  {
-    id: 11,
-    type: "article",
-    title: "Why climate policy involves trade-offs",
-    source: "Green Policy Report",
-    content:
-      "Climate policy can create trade-offs between environmental goals, household costs, industrial competitiveness, and energy security."
-  },
-  {
-    id: 12,
-    type: "article",
-    title: "Why welfare policy is complex",
-    source: "Social Affairs Bulletin",
-    content:
-      "Welfare systems are complex because they must balance fairness, affordability, incentives to work, and support for vulnerable groups."
-  },
-
-];
-
 const ITEMS_PER_PAGE = 10;
+
+const getSectionFromHash = () => {
+  const hash = window.location.hash.replace("#", "");
+  return hash === "favorites" ? "favorites" : "laws";
+};
+
 function App() {
-  const [activeSection, setActiveSection] = useState("laws");
+  const [activeSection, setActiveSection] = useState(getSectionFromHash);
   const [laws, setLaws] = useState([]);
   const [explanations, setExplanations] = useState({});
   const [expandedExplanations, setExpandedExplanations] = useState({});
@@ -124,15 +30,15 @@ function App() {
   const [currentPage, setCurrentPage] = useState(1);
   const [isGenerating, setIsGenerating] = useState(false);
   const [deletingLawId, setDeletingLawId] = useState(null);
+  const [favoriteUpdatingId, setFavoriteUpdatingId] = useState(null);
   const [generateMessage, setGenerateMessage] = useState("");
-
   const [questionInputs, setQuestionInputs] = useState({});
   const [questionAnswers, setQuestionAnswers] = useState({});
   const [loadingAskId, setLoadingAskId] = useState(null);
-
   const [biasResults, setBiasResults] = useState({});
   const [evaluatingBiasIds, setEvaluatingBiasIds] = useState({});
-  
+
+  const favoriteCount = laws.filter((law) => law.favorite).length;
 
   const getLawDisplayContent = (law) => {
     if (law.raw_data) {
@@ -160,6 +66,20 @@ function App() {
   }, []);
 
   useEffect(() => {
+    const handleHashChange = () => {
+      setActiveSection(getSectionFromHash());
+      setCurrentPage(1);
+    };
+
+    window.addEventListener("hashchange", handleHashChange);
+    handleHashChange();
+
+    return () => {
+      window.removeEventListener("hashchange", handleHashChange);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!loadingExplainId || !explainStartedAt) {
       setProgressElapsedMs(0);
       return undefined;
@@ -178,17 +98,27 @@ function App() {
   }, [loadingExplainId, explainStartedAt]);
 
   const filteredItems =
-    activeSection === "laws"
-      ? laws
-      : items.filter((item) => item.type === "article");
+    activeSection === "favorites"
+      ? laws.filter((law) => law.favorite)
+      : laws;
+
   const totalPages = Math.ceil(filteredItems.length / ITEMS_PER_PAGE);
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
   const currentItems = filteredItems.slice(startIndex, startIndex + ITEMS_PER_PAGE);
-  
+
+  useEffect(() => {
+    if (totalPages === 0 && currentPage !== 1) {
+      setCurrentPage(1);
+      return;
+    }
+
+    if (totalPages > 0 && currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   const handleSectionChange = (section) => {
-    setActiveSection(section);
-    setCurrentPage(1);
+    window.location.hash = section === "favorites" ? "favorites" : "laws";
   };
 
   const handleGenerate = async () => {
@@ -201,12 +131,9 @@ function App() {
       });
       const json = await res.json();
 
-      setGenerateMessage(
-        json.message || "Generation finished."
-      );
+      setGenerateMessage(json.message || "Generation finished.");
       await loadLaws();
-      setActiveSection("laws");
-      setCurrentPage(1);
+      handleSectionChange("laws");
     } catch (error) {
       console.error("Error generating law:", error);
       setGenerateMessage("Generation failed.");
@@ -256,109 +183,80 @@ function App() {
     }
   };
 
-//  const handleExplain = async (item) => {
-//   const explanationKey = getExplanationKey(item.id);
+  const handleToggleFavorite = async (lawId) => {
+    setFavoriteUpdatingId(lawId);
+    setGenerateMessage("");
 
-//   if (explanations[explanationKey]) {
-//     setExpandedExplanations((prev) => ({
-//       ...prev,
-//       [item.id]: true
-//     }));
-//     return;
-//   }
-
-//   setLoadingExplainId(item.id);
-//   setExplainStartedAt(Date.now());
-
-//   try {
-//     const res = await fetch("http://localhost:8000/explain", {
-//       method: "POST",
-//       headers: {
-//         "Content-Type": "application/json"
-//       },
-//       body: JSON.stringify({
-//         type: item.type,
-//         title: item.title,
-//         source: item.type === "law" ? item.creator : item.source,
-//         content: item.type === "law" ? getLawDisplayContent(item) : item.content,
-//         language: explanationLanguage
-//       })
-//     });
-
-//     const json = await res.json();
-
-//     setExplanations((prev) => ({
-//       ...prev,
-//       [explanationKey]: json
-//     }));
-//     setExpandedExplanations((prev) => ({
-//       ...prev,
-//       [item.id]: true
-//     }));
-//   } catch (error) {
-//     console.error("Error fetching explanation:", error);
-//   } finally {
-//     setLoadingExplainId(null);
-//     setExplainStartedAt(null);
-//   }
-// };
-
-const handleExplain = async (item) => {
-  const explanationKey = getExplanationKey(item.id);
-
-  if (explanations[explanationKey]) {
-    setExpandedExplanations((prev) => ({ ...prev, [item.id]: true }));
-    return;
-  }
-
-  setLoadingExplainId(item.id);
-  setExplainStartedAt(Date.now());
-
-  try {
-    const content = item.type === "law" ? getLawDisplayContent(item) : item.content;
-    
-    const res = await fetch("http://localhost:8000/explain", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        type: item.type,
-        title: item.title,
-        source: item.type === "law" ? item.creator : item.source,
-        content: content,
-        language: explanationLanguage
-      })
-    });
-
-    const json = await res.json();
-    setExplanations((prev) => ({ ...prev, [explanationKey]: json }));
-    setExpandedExplanations((prev) => ({ ...prev, [item.id]: true }));
-
-  
-    setEvaluatingBiasIds((prev) => ({ ...prev, [item.id]: true }));
     try {
-      const biasRes = await fetch("http://localhost:8000/evaluate-bias", {
+      const res = await fetch(`http://localhost:8000/laws/${lawId}/favorite`, {
+        method: "PATCH"
+      });
+      const json = await res.json();
+
+      setGenerateMessage(json.message || "Favorite updated.");
+      await loadLaws();
+    } catch (error) {
+      console.error("Error updating favorite:", error);
+      setGenerateMessage("Updating favorite failed.");
+    } finally {
+      setFavoriteUpdatingId(null);
+    }
+  };
+
+  const handleExplain = async (item) => {
+    const explanationKey = getExplanationKey(item.id);
+
+    if (explanations[explanationKey]) {
+      setExpandedExplanations((prev) => ({ ...prev, [item.id]: true }));
+      return;
+    }
+
+    setLoadingExplainId(item.id);
+    setExplainStartedAt(Date.now());
+
+    try {
+      const content = getLawDisplayContent(item);
+
+      const res = await fetch("http://localhost:8000/explain", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          input_text: content,
-          target_response: JSON.stringify(json)
+          type: item.type,
+          title: item.title,
+          source: item.creator,
+          content,
+          language: explanationLanguage
         })
       });
-      const biasJson = await biasRes.json();
-      setBiasResults((prev) => ({ ...prev, [explanationKey]: biasJson }));
-    } catch (biasError) {
-      console.error("Error fetching bias:", biasError);
-    } finally {
-      setEvaluatingBiasIds((prev) => ({ ...prev, [item.id]: false }));
-    }
 
-  } catch (error) {
-    console.error("Error fetching explanation:", error);
-  } finally {
-    setLoadingExplainId(null);
-    setExplainStartedAt(null);
-  }
-};
+      const json = await res.json();
+      setExplanations((prev) => ({ ...prev, [explanationKey]: json }));
+      setExpandedExplanations((prev) => ({ ...prev, [item.id]: true }));
+
+      setEvaluatingBiasIds((prev) => ({ ...prev, [item.id]: true }));
+      try {
+        const biasRes = await fetch("http://localhost:8000/evaluate-bias", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            input_text: content,
+            target_response: JSON.stringify(json)
+          })
+        });
+        const biasJson = await biasRes.json();
+        setBiasResults((prev) => ({ ...prev, [explanationKey]: biasJson }));
+      } catch (biasError) {
+        console.error("Error fetching bias:", biasError);
+      } finally {
+        setEvaluatingBiasIds((prev) => ({ ...prev, [item.id]: false }));
+      }
+    } catch (error) {
+      console.error("Error fetching explanation:", error);
+    } finally {
+      setLoadingExplainId(null);
+      setExplainStartedAt(null);
+    }
+  };
 
   const formatElapsedTime = (elapsedMs) => {
     const totalSeconds = Math.floor(elapsedMs / 1000);
@@ -386,6 +284,8 @@ const handleExplain = async (item) => {
     setLoadingAskId(item.id);
 
     try {
+      const explanationKey = getExplanationKey(item.id);
+      const explanation = explanations[explanationKey];
       const res = await fetch("http://localhost:8000/ask", {
         method: "POST",
         headers: {
@@ -393,8 +293,9 @@ const handleExplain = async (item) => {
         },
         body: JSON.stringify({
           title: item.title,
-          content: item.type === "law" ? getLawDisplayContent(item) : item.content,
-          question: questionInputs[item.id] || ""
+          content: getLawDisplayContent(item),
+          question: questionInputs[item.id] || "",
+          summary: explanation?.overview || ""
         })
       });
 
@@ -402,7 +303,7 @@ const handleExplain = async (item) => {
 
       setQuestionAnswers((prev) => ({
         ...prev,
-        [item.id]: json.answer
+        [item.id]: json.overview || json.answer
       }));
     } catch (error) {
       console.error("Error fetching answer:", error);
@@ -414,10 +315,9 @@ const handleExplain = async (item) => {
   return (
     <div style={styles.page}>
       <style>{progressKeyframes}</style>
-      <h1 style={styles.title}>City-Zen</h1>
+      <h1 style={styles.title}>Information Service Tool</h1>
       <p style={styles.subtitle}>
-        Read current topics, policies, and local rules, then get simple
-        explanations.
+        Read current topics, policies, and local rules, then get simple explanations.
       </p>
 
       <div style={styles.menu}>
@@ -433,11 +333,11 @@ const handleExplain = async (item) => {
         <button
           style={{
             ...styles.menuButton,
-            ...(activeSection === "articles" ? styles.menuButtonActive : {})
+            ...(activeSection === "favorites" ? styles.menuButtonActive : {})
           }}
-          onClick={() => handleSectionChange("articles")}
+          onClick={() => handleSectionChange("favorites")}
         >
-          Articles
+          Favorites ({favoriteCount})
         </button>
         <button
           style={{
@@ -455,297 +355,245 @@ const handleExplain = async (item) => {
 
       <div style={styles.sectionHeader}>
         <h2 style={styles.sectionHeading}>
-          {activeSection === "laws" ? "Laws and Policies" : "Articles"}
+          {activeSection === "favorites" ? "Favorite Laws" : "Laws and Policies"}
         </h2>
         <p style={styles.sectionDescription}>
-          {activeSection === "laws"
-            ? "Browse the predefined laws and policies available for explanation."
-            : "Browse the predefined articles available for explanation."}
+          {activeSection === "favorites"
+            ? "Review every law you marked as favorite."
+            : "Browse the predefined laws and policies available for explanation."}
         </p>
       </div>
 
       <div style={styles.articleList}>
         {currentItems.length === 0 && (
           <div style={styles.emptyState}>
-            No laws have been posted yet. Send data to the law endpoint and they
-            will appear here.
+            {activeSection === "favorites"
+              ? "No favorite laws yet. Mark a law as favorite to see it here."
+              : "No laws have been posted yet. Send data to the law endpoint and they will appear here."}
           </div>
         )}
 
-        {currentItems.map((item) => (
-          (() => {
-            const explanationKey = getExplanationKey(item.id);
-            const explanation = explanations[explanationKey];
-            const isExplanationExpanded = expandedExplanations[item.id];
+        {currentItems.map((item) => {
+          const explanationKey = getExplanationKey(item.id);
+          const explanation = explanations[explanationKey];
+          const isExplanationExpanded = expandedExplanations[item.id];
+          const biasResult = biasResults[explanationKey];
+          const isEvaluatingBias = evaluatingBiasIds[item.id];
 
-            const biasResult = biasResults[explanationKey];
-            const isEvaluatingBias = evaluatingBiasIds[item.id];
+          return (
+            <div key={item.id} style={styles.card}>
+              <div style={styles.tagRow}>
+                <span style={styles.typeTag}>Law / Policy</span>
+                {item.favorite && <span style={styles.favoriteBadge}>Favorite</span>}
+              </div>
 
-            return (
-          <div key={item.id} style={styles.card}>
-            <div style={styles.tagRow}>
-              <span
-                style={{
-                  ...styles.typeTag,
-                  backgroundColor:
-                    item.type === "law" ? "#dcfce7" : "#e0e7ff",
-                  color: item.type === "law" ? "#166534" : "#3730a3"
-                }}
-              >
-                {item.type === "law" ? "Law / Policy" : "Article"}
-              </span>
-            </div>
+              <h2 style={styles.articleTitle}>{item.title}</h2>
+              <p style={styles.metaText}>Creator: {item.creator}</p>
+              <a href={item.url} target="_blank" rel="noreferrer" style={styles.urlLink}>
+                {item.url}
+              </a>
 
-            <h2 style={styles.articleTitle}>{item.title}</h2>
-            {item.type === "law" ? (
-              <>
-                <p style={styles.metaText}>Creator: {item.creator}</p>
-                <a href={item.url} target="_blank" rel="noreferrer" style={styles.urlLink}>
-                  {item.url}
-                </a>
-              </>
-            ) : (
-              <p style={styles.source}>Source: {item.source}</p>
-            )}
-
-            <div style={styles.originalBox}>
-              <h3 style={styles.sectionTitle}>
-                {item.type === "law" ? "Original Law / Policy Data" : "Original Article"}
-              </h3>
-              {item.type === "law" ? (
+              <div style={styles.originalBox}>
+                <h3 style={styles.sectionTitle}>Original Law / Policy Data</h3>
                 <div style={styles.scrollBox}>
                   <pre style={styles.codeBlock}>{getLawDisplayContent(item)}</pre>
                 </div>
-              ) : (
-                <p style={styles.text}>{item.content}</p>
+              </div>
+
+              <div style={styles.actionRow}>
+                <button
+                  style={{
+                    ...styles.favoriteButton,
+                    ...(item.favorite ? styles.favoriteButtonActive : {})
+                  }}
+                  onClick={() => handleToggleFavorite(item.id)}
+                  disabled={favoriteUpdatingId === item.id}
+                >
+                  {favoriteUpdatingId === item.id
+                    ? "Saving..."
+                    : item.favorite
+                      ? "★ Unfollow"
+                      : "★ Follow"}
+                </button>
+                <button
+                  style={styles.deleteButton}
+                  onClick={() => handleDeleteLaw(item.id)}
+                  disabled={deletingLawId === item.id}
+                >
+                  {deletingLawId === item.id ? "Deleting..." : "Delete"}
+                </button>
+                <button
+                  style={!explanation || !isExplanationExpanded ? styles.button : styles.hideButton}
+                  onClick={() =>
+                    !explanation || !isExplanationExpanded
+                      ? handleExplain(item)
+                      : handleHideExplanation(item.id)
+                  }
+                  disabled={loadingExplainId === item.id}
+                >
+                  {!explanation || !isExplanationExpanded
+                    ? loadingExplainId === item.id
+                      ? "Loading..."
+                      : explanation
+                        ? "Show explanation"
+                        : "Explain"
+                    : "Hide explanation"}
+                </button>
+                {activeSection === "favorites" && (
+                  <button type="button" style={styles.refreshButton}>
+                    Refresh
+                  </button>
+                )}
+              </div>
+
+              {explanation && isExplanationExpanded && (
+                <>
+                  <div style={styles.explanationBox}>
+                    <div style={styles.explanationHeader}>
+                      <h3 style={styles.sectionTitle}>Explanation</h3>
+                      <select
+                        value={explanationLanguage}
+                        onChange={(e) => setExplanationLanguage(e.target.value)}
+                        style={styles.languageSelect}
+                      >
+                        <option value="en">English</option>
+                        <option value="nl">Dutch</option>
+                      </select>
+                    </div>
+
+                    {explanation.error ? (
+                      <div style={styles.block}>
+                        <p style={styles.heading}>Processing Error</p>
+                        <p style={styles.contentText}>{explanation.error}</p>
+                      </div>
+                    ) : (
+                      <>
+                        <div style={styles.block}>
+                          <p style={styles.heading}>Title</p>
+                          <p style={styles.contentText}>{explanation.title}</p>
+                        </div>
+
+                        <div style={styles.block}>
+                          <p style={styles.heading}>Overview</p>
+                          <p style={styles.contentText}>{explanation.overview}</p>
+                        </div>
+
+                        <div style={styles.block}>
+                          <p style={styles.heading}>Expected Impacts</p>
+                          <ul style={styles.list}>
+                            {explanation.expected_impacts?.map((impact, index) => (
+                              <li key={index} style={styles.listItem}>
+                                {impact}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+
+                        <div style={styles.block}>
+                          <p style={styles.heading}>Key Changes</p>
+                          <ul style={styles.list}>
+                            {explanation.key_changes?.map((change, index) => (
+                              <li key={index} style={styles.listItem}>
+                                {change}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+
+                        <div style={styles.block}>
+                          <p style={styles.heading}>Trade-offs</p>
+                          <ul style={styles.list}>
+                            {explanation.trade_offs?.map((trade, index) => (
+                              <li key={index} style={styles.listItem}>
+                                {trade}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+
+                        <div style={styles.block}>
+                          <p style={styles.heading}>Meaning for Resident</p>
+                          <p style={styles.contentText}>{explanation.meaning_for_resident}</p>
+                        </div>
+                      </>
+                    )}
+
+                    <div style={styles.biasBox}>
+                      <p style={styles.heading}>Bias Evaluation</p>
+                      {isEvaluatingBias ? (
+                        <p style={styles.biasPendingText}>Evaluating response for bias...</p>
+                      ) : biasResult?.error ? (
+                        <p style={styles.biasErrorText}>
+                          Failed to evaluate bias: {biasResult.error}
+                        </p>
+                      ) : biasResult ? (
+                        <>
+                          <div
+                            style={{
+                              ...styles.biasScore,
+                              color: biasResult.score > 0.5 ? "#b91c1c" : "#15803d"
+                            }}
+                          >
+                            Score: {biasResult.score}{" "}
+                            {biasResult.score > 0.5 ? "(Detected Bias)" : "(Unbiased)"}
+                          </div>
+                          <p style={styles.biasReasonText}>
+                            <strong>Reasoning:</strong> {biasResult.reason || "No reasoning provided."}
+                          </p>
+                        </>
+                      ) : (
+                        <p style={styles.biasPendingText}>Bias not evaluated.</p>
+                      )}
+                    </div>
+
+                    <div style={styles.askBox}>
+                      <p style={styles.heading}>Ask anything about this law</p>
+
+                      <textarea
+                        value={questionInputs[item.id] || ""}
+                        onChange={(e) => handleQuestionChange(item.id, e.target.value)}
+                        placeholder="Type your question here..."
+                        style={styles.textarea}
+                      />
+
+                      <button
+                        style={styles.sendButton}
+                        onClick={() => handleSendQuestion(item)}
+                        disabled={loadingAskId === item.id}
+                      >
+                        {loadingAskId === item.id ? "Sending..." : "Send"}
+                      </button>
+
+                      {questionAnswers[item.id] && (
+                        <div style={styles.answerBox}>
+                          <p style={styles.heading}>Answer</p>
+                          <p style={styles.contentText}>{questionAnswers[item.id]}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {loadingExplainId === item.id && (
+                <div style={styles.progressCard}>
+                  <p style={styles.progressTitle}>Processing with local LLM</p>
+                  <div style={styles.progressTrack}>
+                    <div style={styles.progressBar} />
+                  </div>
+                  <p style={styles.progressText}>
+                    Elapsed time: {formatElapsedTime(progressElapsedMs)}
+                  </p>
+                  <p style={styles.progressHint}>
+                    This shows active processing while the model works. The current
+                    local API does not expose a true completion percentage for prompt
+                    processing.
+                  </p>
+                </div>
               )}
             </div>
-
-            {item.type === "law" && (
-              <button
-                style={styles.deleteButton}
-                onClick={() => handleDeleteLaw(item.id)}
-                disabled={deletingLawId === item.id}
-              >
-                {deletingLawId === item.id ? "Deleting..." : "Delete"}
-              </button>
-            )}
-
-            {!explanation || !isExplanationExpanded ? (
-              <button
-                style={styles.button}
-                onClick={() => handleExplain(item)}
-                disabled={loadingExplainId === item.id}
-              >
-                {loadingExplainId === item.id
-                  ? "Loading..."
-                  : explanation
-                    ? "Show explanation"
-                    : "Explain"}
-              </button>
-            ) : (
-              <>
-                <button
-                  style={styles.hideButton}
-                  onClick={() => handleHideExplanation(item.id)}
-                >
-                  Hide explanation
-                </button>
-
-                <div style={styles.explanationBox}>
-  <div style={styles.explanationHeader}>
-    <h3 style={styles.sectionTitle}>Explanation</h3>
-    <select
-      value={explanationLanguage}
-      onChange={(e) => setExplanationLanguage(e.target.value)}
-      style={styles.languageSelect}
-    >
-      <option value="en">English</option>
-      <option value="nl">Dutch</option>
-    </select>
-  </div>
-
-  {explanation.error ? (
-    <div style={styles.block}>
-      <p style={styles.heading}>Processing Error</p>
-      <p style={styles.contentText}>{explanation.error}</p>
-    </div>
-  ) : item.type === "law" ? (
-    <>
-      <div style={styles.block}>
-        <p style={styles.heading}>Title</p>
-        <p style={styles.contentText}>{explanation.title}</p>
-      </div>
-
-      <div style={styles.block}>
-        <p style={styles.heading}>Overview</p>
-        <p style={styles.contentText}>{explanation.overview}</p>
-      </div>
-
-      <div style={styles.block}>
-        <p style={styles.heading}>Expected Impacts</p>
-        <ul style={styles.list}>
-          {explanation.expected_impacts?.map((impact, i) => (
-            <li key={i} style={styles.listItem}>
-              {impact}
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      <div style={styles.block}>
-        <p style={styles.heading}>Key Changes</p>
-        <ul style={styles.list}>
-          {explanation.key_changes?.map((change, i) => (
-            <li key={i} style={styles.listItem}>
-              {change}
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      <div style={styles.block}>
-        <p style={styles.heading}>Trade-offs</p>
-        <ul style={styles.list}>
-          {explanation.trade_offs?.map((trade, i) => (
-            <li key={i} style={styles.listItem}>
-              {trade}
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      <div style={styles.block}>
-        <p style={styles.heading}>Meaning for Resident</p>
-        <p style={styles.contentText}>
-          {explanation.meaning_for_resident}
-        </p>
-      </div>
-    </>
-  ) : (
-    <>
-      <div style={styles.block}>
-        <p style={styles.heading}>Plain Answer</p>
-        <p style={styles.contentText}>
-          {explanation.plain_answer}
-        </p>
-      </div>
-
-      <div style={styles.block}>
-        <p style={styles.heading}>Why this happens</p>
-        <ul style={styles.list}>
-          {explanation.why_this_happens?.map((reason, i) => (
-            <li key={i} style={styles.listItem}>
-              {reason}
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      <div style={styles.block}>
-        <p style={styles.heading}>Benefits</p>
-        <ul style={styles.list}>
-          {explanation.benefits?.map((benefit, i) => (
-            <li key={i} style={styles.listItem}>
-              {benefit}
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      <div style={styles.block}>
-        <p style={styles.heading}>Downsides</p>
-        <ul style={styles.list}>
-          {explanation.downsides?.map((downside, i) => (
-            <li key={i} style={styles.listItem}>
-              {downside}
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      <div style={styles.block}>
-        <p style={styles.heading}>Simple Example</p>
-        <p style={styles.contentText}>
-          {explanation.simple_example}
-        </p>
-      </div>
-    </>
-  )}
-  {/* Bias Evaluation Display */}
-<div style={{ ...styles.block, backgroundColor: "#f8fafc", padding: "12px", borderRadius: "8px" }}>
-  <p style={styles.heading}>Bias Evaluation</p>
-  {isEvaluatingBias ? (
-  <p style={{ color: "#64748b", fontSize: "14px", fontStyle: "italic" }}>
-    Evaluating response for bias...
-  </p>
-) : biasResult?.error ? (
-  <p style={{ color: "#b91c1c", fontSize: "14px" }}>
-    Failed to evaluate bias: {biasResult.error}
-  </p>
-) : biasResult ? (
-    <>
-      <div style={{ marginBottom: "8px", fontWeight: "bold", color: biasResult.score > 0.5 ? "#b91c1c" : "#15803d" }}>
-        Score: {biasResult.score} {biasResult.score > 0.5 ? "(Detected Bias)" : "(Unbiased)"}
-      </div>
-      <p style={{ ...styles.contentText, fontSize: "14px" }}>
-        <strong>Reasoning:</strong> {biasResult.reason || "No reasoning provided."}
-      </p>
-    </>
-  ) : (
-    <p style={{ color: "#64748b", fontSize: "14px" }}>Bias not evaluated.</p>
-  )}
-</div>
-  <div style={styles.askBox}>
-    <p style={styles.heading}>
-      Ask anything about this {item.type === "law" ? "law" : "article"}
-    </p>
-
-    <textarea
-      value={questionInputs[item.id] || ""}
-      onChange={(e) => handleQuestionChange(item.id, e.target.value)}
-      placeholder="Type your question here..."
-      style={styles.textarea}
-    />
-
-    <button
-      style={styles.sendButton}
-      onClick={() => handleSendQuestion(item)}
-    >
-      {loadingAskId === item.id ? "Sending..." : "Send"}
-    </button>
-
-    {questionAnswers[item.id] && (
-      <div style={styles.answerBox}>
-        <p style={styles.heading}>Answer</p>
-        <p style={styles.contentText}>{questionAnswers[item.id]}</p>
-      </div>
-    )}
-  </div>
-</div>
-              </>
-            )}
-
-            {loadingExplainId === item.id && (
-              <div style={styles.progressCard}>
-                <p style={styles.progressTitle}>Processing with local LLM</p>
-                <div style={styles.progressTrack}>
-                  <div style={styles.progressBar} />
-                </div>
-                <p style={styles.progressText}>
-                  Elapsed time: {formatElapsedTime(progressElapsedMs)}
-                </p>
-                <p style={styles.progressHint}>
-                  This shows active processing while the model works. The
-                  current local API does not expose a true completion
-                  percentage for prompt processing.
-                </p>
-              </div>
-            )}
-          </div>
-            );
-          })()
-        ))}
+          );
+        })}
       </div>
 
       {filteredItems.length > 0 && (
@@ -790,7 +638,8 @@ const styles = {
     padding: "30px",
     fontFamily: "Arial, sans-serif",
     backgroundColor: "#f3f4f6",
-    minHeight: "100vh"
+    minHeight: "100vh",
+    boxSizing: "border-box"
   },
   title: {
     textAlign: "center",
@@ -822,6 +671,16 @@ const styles = {
   generateButtonDisabled: {
     opacity: 0.7,
     cursor: "not-allowed"
+  },
+  refreshButton: {
+    padding: "10px 16px",
+    border: "none",
+    borderRadius: "8px",
+    backgroundColor: "#0f172a",
+    color: "#ffffff",
+    cursor: "pointer",
+    fontSize: "14px",
+    fontWeight: "700"
   },
   menuButton: {
     padding: "10px 18px",
@@ -861,7 +720,9 @@ const styles = {
   articleList: {
     display: "flex",
     flexDirection: "column",
-    gap: "25px"
+    gap: "25px",
+    maxWidth: "1100px",
+    margin: "0 auto"
   },
   emptyState: {
     backgroundColor: "#ffffff",
@@ -875,26 +736,37 @@ const styles = {
     backgroundColor: "#ffffff",
     padding: "22px",
     borderRadius: "12px",
-    boxShadow: "0 2px 8px rgba(0,0,0,0.08)"
+    boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+    textAlign: "left"
   },
   tagRow: {
-    marginBottom: "10px"
+    marginBottom: "10px",
+    display: "flex",
+    gap: "8px",
+    alignItems: "center",
+    flexWrap: "wrap"
   },
   typeTag: {
     display: "inline-block",
     padding: "6px 10px",
     borderRadius: "999px",
     fontSize: "12px",
-    fontWeight: "700"
+    fontWeight: "700",
+    backgroundColor: "#dcfce7",
+    color: "#166534"
+  },
+  favoriteBadge: {
+    display: "inline-block",
+    padding: "6px 10px",
+    borderRadius: "999px",
+    fontSize: "12px",
+    fontWeight: "700",
+    backgroundColor: "#fef3c7",
+    color: "#92400e"
   },
   articleTitle: {
     marginBottom: "8px",
     color: "#111827"
-  },
-  source: {
-    color: "#374151",
-    fontSize: "14px",
-    marginBottom: "15px"
   },
   metaText: {
     color: "#374151",
@@ -928,6 +800,53 @@ const styles = {
     lineHeight: "1.55",
     color: "#1f2937"
   },
+  actionRow: {
+    display: "flex",
+    gap: "10px",
+    flexWrap: "wrap",
+    marginBottom: "14px",
+    justifyContent: "center",
+    alignItems: "center"
+  },
+  button: {
+    padding: "10px 16px",
+    border: "none",
+    borderRadius: "8px",
+    cursor: "pointer",
+    backgroundColor: "#2563eb",
+    color: "white",
+    fontSize: "14px"
+  },
+  hideButton: {
+    padding: "10px 16px",
+    border: "none",
+    borderRadius: "8px",
+    cursor: "pointer",
+    backgroundColor: "#475569",
+    color: "white",
+    fontSize: "14px"
+  },
+  favoriteButton: {
+    padding: "10px 16px",
+    border: "none",
+    borderRadius: "8px",
+    cursor: "pointer",
+    backgroundColor: "#f59e0b",
+    color: "white",
+    fontSize: "14px"
+  },
+  favoriteButtonActive: {
+    backgroundColor: "#d97706"
+  },
+  deleteButton: {
+    padding: "10px 16px",
+    border: "none",
+    borderRadius: "8px",
+    cursor: "pointer",
+    backgroundColor: "#b91c1c",
+    color: "white",
+    fontSize: "14px"
+  },
   explanationBox: {
     backgroundColor: "#dbeafe",
     padding: "16px",
@@ -939,7 +858,8 @@ const styles = {
     justifyContent: "space-between",
     alignItems: "center",
     gap: "12px",
-    marginBottom: "12px"
+    marginBottom: "12px",
+    flexWrap: "wrap"
   },
   progressCard: {
     marginTop: "16px",
@@ -981,6 +901,7 @@ const styles = {
   },
   sectionTitle: {
     marginTop: 0,
+    marginBottom: "10px",
     color: "#111827"
   },
   languageSelect: {
@@ -992,10 +913,6 @@ const styles = {
     fontSize: "14px",
     fontWeight: "600",
     cursor: "pointer"
-  },
-  text: {
-    lineHeight: "1.7",
-    color: "#1f2937"
   },
   block: {
     marginBottom: "18px"
@@ -1013,6 +930,7 @@ const styles = {
   },
   list: {
     marginTop: "8px",
+    marginBottom: 0,
     paddingLeft: "20px"
   },
   listItem: {
@@ -1020,33 +938,29 @@ const styles = {
     marginBottom: "6px",
     lineHeight: "1.6"
   },
-  button: {
-    padding: "10px 16px",
-    border: "none",
+  biasBox: {
+    backgroundColor: "#f8fafc",
+    padding: "12px",
     borderRadius: "8px",
-    cursor: "pointer",
-    backgroundColor: "#2563eb",
-    color: "white",
-    fontSize: "14px"
+    marginBottom: "18px"
   },
-  hideButton: {
-    padding: "10px 16px",
-    border: "none",
-    borderRadius: "8px",
-    cursor: "pointer",
-    backgroundColor: "#475569",
-    color: "white",
-    fontSize: "14px"
-  },
-  deleteButton: {
-    padding: "10px 16px",
-    border: "none",
-    borderRadius: "8px",
-    cursor: "pointer",
-    backgroundColor: "#b91c1c",
-    color: "white",
+  biasPendingText: {
+    color: "#64748b",
     fontSize: "14px",
-    marginRight: "10px"
+    fontStyle: "italic"
+  },
+  biasErrorText: {
+    color: "#b91c1c",
+    fontSize: "14px"
+  },
+  biasScore: {
+    marginBottom: "8px",
+    fontWeight: "700"
+  },
+  biasReasonText: {
+    color: "#1f2937",
+    fontSize: "14px",
+    margin: 0
   },
   askBox: {
     marginTop: "24px",
@@ -1086,7 +1000,8 @@ const styles = {
     alignItems: "center",
     gap: "16px",
     marginTop: "30px",
-    paddingBottom: "20px"
+    paddingBottom: "20px",
+    flexWrap: "wrap"
   },
   pageButton: {
     padding: "10px 14px",
