@@ -72,8 +72,13 @@ def process_record(record):
     for art in articles:
         number = art.xpath("./kop/nr/text()")
         text = art.xpath(".//lid//text()[normalize-space()]")
+        article_number = "".join(number).strip() or "Onbekend"
+        article_text = " ".join(part.strip() for part in text if part.strip()).strip()
 
-        article = f"### Artikel {''.join(number)}\n{' '.join(text)}"
+        if not article_text:
+            article_text = "-- no data --"
+
+        article = f"### Artikel {article_number}\n{article_text}"
 
         all_articles.append(article)
 
